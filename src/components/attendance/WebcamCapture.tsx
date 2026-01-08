@@ -10,6 +10,7 @@ interface WebcamCaptureProps {
   message?: string;
   autoCapture?: boolean;
   interval?: number;
+  buttonText?: string;
 }
 
 export const WebcamCapture = ({
@@ -18,7 +19,8 @@ export const WebcamCapture = ({
   status = 'idle',
   message,
   autoCapture = false,
-  interval = 2000
+  interval = 2000,
+  buttonText = "Capture & Mark Attendance"
 }: WebcamCaptureProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -199,7 +201,7 @@ export const WebcamCapture = ({
         ) : (
           <>
             <Camera className="w-5 h-5 mr-2" />
-            Capture & Mark Attendance
+            {buttonText}
           </>
         )}
       </Button>

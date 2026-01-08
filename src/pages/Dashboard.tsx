@@ -4,12 +4,12 @@ import { StatCard } from '@/components/ui/stat-card';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
-import { 
-  Users, 
-  UserCheck, 
-  UserX, 
-  Clock, 
+
+import {
+  Users,
+  UserCheck,
+  UserX,
+  Clock,
   TrendingUp,
   CalendarDays,
   Activity
@@ -48,54 +48,30 @@ export default function Dashboard() {
   }, [isAdmin, isManager]);
 
   const fetchDashboardData = async () => {
-    const today = format(new Date(), 'yyyy-MM-dd');
-
     try {
-      // Fetch total employees
-      const { count: totalEmployees } = await supabase
-        .from('employees')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'active');
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
-      // Fetch today's attendance
-      const { data: todayAttendance } = await supabase
-        .from('attendance')
-        .select(`
-          id,
-          status,
-          check_in_time,
-          confidence_score,
-          employees (
-            id,
-            full_name
-          )
-        `)
-        .eq('date', today)
-        .order('check_in_time', { ascending: false })
-        .limit(10);
+      // Fetch Stats
+      const statsRes = await fetch(`${API_URL}/stats`);
+      const statsData = await statsRes.json();
 
-      // Calculate stats
-      const presentCount = todayAttendance?.filter(a => a.status === 'present').length || 0;
-      const lateCount = todayAttendance?.filter(a => a.status === 'late').length || 0;
-      const absentCount = (totalEmployees || 0) - presentCount - lateCount;
+      if (statsData.success) {
+        setStats({
+          totalEmployees: statsData.totalEmployees,
+          presentToday: statsData.presentToday,
+          absentToday: statsData.absentToday,
+          lateToday: statsData.lateToday,
+        });
+      }
 
-      setStats({
-        totalEmployees: totalEmployees || 0,
-        presentToday: presentCount,
-        absentToday: absentCount > 0 ? absentCount : 0,
-        lateToday: lateCount,
-      });
+      // Fetch Recent Attendance
+      const recentRes = await fetch(`${API_URL}/recent`);
+      const recentData = await recentRes.json();
 
-      // Format recent attendance for display
-      const formatted = todayAttendance?.map(a => ({
-        id: a.id,
-        employee_name: (a.employees as any)?.full_name || 'Unknown',
-        check_in_time: a.check_in_time || '',
-        status: a.status as 'present' | 'late' | 'absent' | 'half_day',
-        confidence_score: a.confidence_score || 0,
-      })) || [];
+      if (recentData.success) {
+        setRecentAttendance(recentData.data);
+      }
 
-      setRecentAttendance(formatted);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     } finally {
@@ -103,8 +79,8 @@ export default function Dashboard() {
     }
   };
 
-  const attendancePercentage = stats.totalEmployees > 0 
-    ? Math.round(((stats.presentToday + stats.lateToday) / stats.totalEmployees) * 100) 
+  const attendancePercentage = stats.totalEmployees > 0
+    ? Math.round(((stats.presentToday + stats.lateToday) / stats.totalEmployees) * 100)
     : 0;
 
   return (
@@ -186,7 +162,7 @@ export default function Dashboard() {
                         <div>
                           <p className="font-medium text-foreground">{record.employee_name}</p>
                           <p className="text-xs text-muted-foreground">
-                            {record.check_in_time 
+                            {record.check_in_time
                               ? format(new Date(record.check_in_time), 'h:mm a')
                               : 'N/A'
                             }
@@ -229,7 +205,7 @@ export default function Dashboard() {
                     <span className="font-semibold">{attendancePercentage}%</span>
                   </div>
                   <div className="h-3 bg-muted rounded-full overflow-hidden">
-                    <div 
+                    <div
                       className="h-full bg-gradient-to-r from-primary to-accent transition-all duration-500"
                       style={{ width: `${attendancePercentage}%` }}
                     />

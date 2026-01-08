@@ -4,7 +4,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { StatusBadge } from '@/components/ui/status-badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, TrendingUp } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths } from 'date-fns';
 
@@ -41,48 +40,37 @@ export default function AttendanceHistory() {
       const monthStart = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
       const monthEnd = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
 
-      // Get employee ID first
-      const { data: employee } = await supabase
-        .from('employees')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const response = await fetch(`${API_URL}/attendance/history?userId=${user.id}&startDate=${monthStart}&endDate=${monthEnd}`);
+      const result = await response.json();
 
-      if (!employee) {
-        setLoading(false);
-        return;
+      if (result.success) {
+        const records = result.data.map((item: any) => ({
+          id: item.id,
+          date: item.date,
+          check_in_time: item.check_in_time,
+          check_out_time: item.check_out_time,
+          status: item.status as 'present' | 'absent' | 'late' | 'half_day',
+          confidence_score: item.confidence_score,
+        }));
+        setAttendance(records);
+
+        // Calculate stats
+        const presentCount = records.filter((r: AttendanceRecord) => r.status === 'present').length;
+        const lateCount = records.filter((r: AttendanceRecord) => r.status === 'late').length;
+        const absentCount = records.filter((r: AttendanceRecord) => r.status === 'absent').length;
+        const totalWorkDays = records.length || 1;
+        const attendancePercentage = Math.round(((presentCount + lateCount) / totalWorkDays) * 100);
+
+        setStats({
+          present: presentCount,
+          late: lateCount,
+          absent: absentCount,
+          percentage: attendancePercentage,
+        });
+      } else {
+        console.error('API Error:', result.message);
       }
-
-      const { data, error } = await supabase
-        .from('attendance')
-        .select('*')
-        .eq('employee_id', employee.id)
-        .gte('date', monthStart)
-        .lte('date', monthEnd)
-        .order('date', { ascending: false });
-
-      if (error) throw error;
-
-      const records = (data || []).map(r => ({
-        ...r,
-        status: r.status as 'present' | 'absent' | 'late' | 'half_day',
-      }));
-
-      setAttendance(records);
-
-      // Calculate stats
-      const presentCount = records.filter(r => r.status === 'present').length;
-      const lateCount = records.filter(r => r.status === 'late').length;
-      const absentCount = records.filter(r => r.status === 'absent').length;
-      const totalWorkDays = records.length || 1;
-      const attendancePercentage = Math.round(((presentCount + lateCount) / totalWorkDays) * 100);
-
-      setStats({
-        present: presentCount,
-        late: lateCount,
-        absent: absentCount,
-        percentage: attendancePercentage,
-      });
     } catch (error) {
       console.error('Error fetching attendance:', error);
     } finally {
@@ -102,7 +90,7 @@ export default function AttendanceHistory() {
   const getDayStatusColor = (day: Date) => {
     const record = getAttendanceForDay(day);
     if (!record) return 'bg-muted';
-    
+
     switch (record.status) {
       case 'present':
         return 'bg-success text-success-foreground';
@@ -271,7 +259,7 @@ export default function AttendanceHistory() {
                         {format(new Date(record.date), 'EEEE, MMMM d')}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        Check-in: {record.check_in_time 
+                        Check-in: {record.check_in_time
                           ? format(new Date(record.check_in_time), 'h:mm a')
                           : 'N/A'
                         }

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { WebcamCapture } from '@/components/attendance/WebcamCapture';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -29,12 +30,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/integrations/supabase/client';
+
 import { UserPlus, Search, Users, ScanFace, Loader2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 
 interface Employee {
+  _id?: string;
   id: string;
   employee_id: string;
   full_name: string;
@@ -46,7 +48,8 @@ interface Employee {
 }
 
 interface Department {
-  id: string;
+  _id?: string;
+  id: string; // Keep id for compatibility or assume mapped
   name: string;
 }
 
@@ -70,50 +73,65 @@ export default function Employees() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    fetchEmployees();
-    fetchDepartments();
-  }, []);
-
   const fetchEmployees = async () => {
     try {
-      const { data, error } = await supabase
-        .from('employees')
-        .select('*')
-        .order('full_name');
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const response = await fetch(`${API_URL}/employees`);
+      const result = await response.json();
 
-      if (error) throw error;
-      setEmployees(data?.map(e => ({
-        ...e,
-        status: e.status as 'active' | 'inactive'
-      })) || []);
+      if (result.success) {
+        setEmployees(result.data);
+      } else {
+        toast({ title: 'Error', description: result.message, variant: 'destructive' });
+      }
     } catch (error) {
       console.error('Error fetching employees:', error);
+      toast({ title: 'Error', description: 'Could not fetch employees', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
   };
 
   const fetchDepartments = async () => {
-    const { data } = await supabase.from('departments').select('*').order('name');
-    setDepartments(data || []);
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const response = await fetch(`${API_URL}/departments`);
+      const result = await response.json();
+
+      if (result.success) {
+        setDepartments(result.data);
+      }
+    } catch (error) {
+      console.error('Error fetching departments:', error);
+    }
   };
+
+  useEffect(() => {
+    fetchEmployees();
+    fetchDepartments();
+  }, []);
 
   const handleAddEmployee = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
 
     try {
-      const { error } = await supabase.from('employees').insert({
-        employee_id: formData.employee_id,
-        full_name: formData.full_name,
-        email: formData.email,
-        department: formData.department,
-        date_of_joining: formData.date_of_joining,
-        status: 'active',
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      const response = await fetch(`${API_URL}/employees`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...formData,
+          // Ensure this matches backend expected fields
+          status: 'active'
+        })
       });
 
-      if (error) throw error;
+      const result = await response.json();
+
+      if (!result.success) {
+        throw new Error(result.message);
+      }
 
       toast({
         title: 'Employee Added',
@@ -140,41 +158,51 @@ export default function Employees() {
     }
   };
 
-  const handleEnrollFace = async (employee: Employee) => {
-    setIsEnrolling(employee.id);
-    
+  const [isEnrollDialogOpen, setIsEnrollDialogOpen] = useState(false);
+  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+
+  const handleEnrollFace = (employee: Employee) => {
+    setSelectedEmployee(employee);
+    setIsEnrollDialogOpen(true);
+  };
+
+  const handleCaptureEnrollment = async (imageData: string) => {
+    if (!selectedEmployee) return;
+
+    // setIsEnrolling(selectedEmployee.id); // No, use local loading state if better, or keep this
+    // Actually, WebcamCapture handles its own loading usually, but we need to trigger the API call.
+
     try {
-      // This would trigger the face enrollment process
-      // For now, we'll just update the azure_face_name field
-      const { error } = await supabase
-        .from('employees')
-        .update({ azure_face_name: employee.full_name.toLowerCase().replace(/\s+/g, '_') })
-        .eq('id', employee.id);
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+      // Use _id from MongoDB if available, otherwise id
+      const empId = selectedEmployee._id || selectedEmployee.id;
+      if (!empId) throw new Error("Invalid Employee ID");
 
-      if (error) throw error;
-
-      toast({
-        title: 'Face Enrolled',
-        description: `Face enrollment initiated for ${employee.full_name}. Please complete the enrollment process.`,
+      const response = await fetch(`${API_URL}/employees/${empId}/enroll`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: imageData })
       });
 
-      fetchEmployees();
+      const result = await response.json();
+
+      if (result.success) {
+        toast({ title: 'Success', description: 'Face enrolled successfully!' });
+        setIsEnrollDialogOpen(false);
+        fetchEmployees(); // Refresh list
+      } else {
+        throw new Error(result.message);
+      }
     } catch (error: any) {
-      toast({
-        title: 'Enrollment Failed',
-        description: error.message || 'Failed to enroll face',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsEnrolling(null);
+      toast({ title: 'Error', description: error.message || 'Enrollment failed', variant: 'destructive' });
     }
   };
 
   const filteredEmployees = employees.filter(emp =>
-    emp.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    emp.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    emp.employee_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    emp.department.toLowerCase().includes(searchQuery.toLowerCase())
+    (emp.full_name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (emp.email || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (emp.employee_id || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (emp.department || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -255,11 +283,17 @@ export default function Employees() {
                         <SelectValue placeholder="Select department" />
                       </SelectTrigger>
                       <SelectContent>
-                        {departments.map((dept) => (
-                          <SelectItem key={dept.id} value={dept.name}>
-                            {dept.name}
-                          </SelectItem>
-                        ))}
+                        {departments && departments.length > 0 ? (
+                          departments.map((dept) => (
+                            <SelectItem key={dept._id || dept.id} value={dept.name}>
+                              {dept.name}
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <div className="p-2 text-sm text-muted-foreground text-center">
+                            No departments found. Please add one in the Departments tab.
+                          </div>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
@@ -282,6 +316,36 @@ export default function Employees() {
               </DialogContent>
             </Dialog>
           )}
+
+          <Dialog open={isEnrollDialogOpen} onOpenChange={setIsEnrollDialogOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Enroll Face for {selectedEmployee?.full_name}</DialogTitle>
+                <DialogDescription>
+                  Capture a clear photo of the employee to enable face recognition.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="py-4">
+                {/* Reusing WebcamCapture with auto-capture OFF for enrollment to allow manual approval if needed, 
+                     but for simplicity let's use the same component. 
+                     We need to pass a handler. */}
+                {isEnrollDialogOpen && (
+                  <div className="mt-4">
+                    {/* We need to use the WebcamCapture component properly. */}
+                    {/* Assuming WebcamCapture handles the UI. checking imports needed. */}
+                    <WebcamCapture
+                      onCapture={handleCaptureEnrollment}
+                      isProcessing={false} // We handle loading via toast for now or local state
+                      status="idle"
+                      message="Look at the camera and capture"
+                      autoCapture={false} // Manual capture for enrollment
+                      buttonText="Enroll Face"
+                    />
+                  </div>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
 
         {/* Search */}
@@ -332,60 +396,76 @@ export default function Employees() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredEmployees.map((employee) => (
-                      <TableRow key={employee.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                              <span className="text-sm font-semibold text-primary">
-                                {employee.full_name.charAt(0)}
+                    {filteredEmployees.length > 0 ? (
+                      filteredEmployees.map((employee) => (
+                        <TableRow key={employee._id || employee.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                                <span className="text-sm font-semibold text-primary">
+                                  {(employee.full_name || '?').charAt(0)}
+                                </span>
+                              </div>
+                              <div>
+                                <p className="font-medium">{employee.full_name || 'Unknown'}</p>
+                                <p className="text-sm text-muted-foreground">{employee.email || 'No Email'}</p>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="font-mono text-sm">{employee.employee_id || 'N/A'}</TableCell>
+                          <TableCell>{employee.department || 'N/A'}</TableCell>
+                          <TableCell>
+                            <StatusBadge status={employee.status} />
+                          </TableCell>
+                          <TableCell>
+                            {employee.azure_face_name ? (
+                              <span className="inline-flex items-center gap-1 text-success text-sm">
+                                <ScanFace className="w-4 h-4" />
+                                Enrolled
                               </span>
-                            </div>
-                            <div>
-                              <p className="font-medium">{employee.full_name}</p>
-                              <p className="text-sm text-muted-foreground">{employee.email}</p>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-mono text-sm">{employee.employee_id}</TableCell>
-                        <TableCell>{employee.department}</TableCell>
-                        <TableCell>
-                          <StatusBadge status={employee.status} />
-                        </TableCell>
-                        <TableCell>
-                          {employee.azure_face_name ? (
-                            <span className="inline-flex items-center gap-1 text-success text-sm">
-                              <ScanFace className="w-4 h-4" />
-                              Enrolled
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground text-sm">Not enrolled</span>
-                          )}
-                        </TableCell>
-                        <TableCell>{format(new Date(employee.date_of_joining), 'MMM d, yyyy')}</TableCell>
-                        {isAdmin && (
-                          <TableCell className="text-right">
-                            {!employee.azure_face_name && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleEnrollFace(employee)}
-                                disabled={isEnrolling === employee.id}
-                              >
-                                {isEnrolling === employee.id ? (
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                ) : (
-                                  <>
-                                    <ScanFace className="w-4 h-4 mr-1" />
-                                    Enroll
-                                  </>
-                                )}
-                              </Button>
+                            ) : (
+                              <span className="text-muted-foreground text-sm">Not enrolled</span>
                             )}
                           </TableCell>
-                        )}
+                          <TableCell>
+                            {(() => {
+                              try {
+                                return employee.date_of_joining ? format(new Date(employee.date_of_joining), 'MMM d, yyyy') : 'N/A';
+                              } catch (e) {
+                                return 'Invalid Date';
+                              }
+                            })()}
+                          </TableCell>
+                          {isAdmin && (
+                            <TableCell className="text-right">
+                              {!employee.azure_face_name && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleEnrollFace(employee)}
+                                  disabled={isEnrolling === employee.id}
+                                >
+                                  {isEnrolling === employee.id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <>
+                                      <ScanFace className="w-4 h-4 mr-1" />
+                                      Enroll
+                                    </>
+                                  )}
+                                </Button>
+                              )}
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      ))
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={isAdmin ? 7 : 6} className="text-center py-8 text-muted-foreground">
+                          No employees found.
+                        </TableCell>
                       </TableRow>
-                    ))}
+                    )}
                   </TableBody>
                 </Table>
               </div>
@@ -393,6 +473,6 @@ export default function Employees() {
           </CardContent>
         </Card>
       </div>
-    </DashboardLayout>
+    </DashboardLayout >
   );
 }

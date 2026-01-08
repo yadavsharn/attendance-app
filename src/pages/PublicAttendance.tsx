@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { WebcamCapture } from '@/components/attendance/WebcamCapture';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ScanFace, CheckCircle, Clock } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { ScanFace, CheckCircle, Clock, LayoutDashboard } from 'lucide-react';
 import { format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 
@@ -73,7 +75,15 @@ export default function PublicAttendance() {
     };
 
     return (
-        <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
+        <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 relative">
+            <div className="absolute top-4 right-4">
+                <Link to="/dashboard">
+                    <Button variant="outline" className="gap-2">
+                        <LayoutDashboard className="w-4 h-4" />
+                        Go to Dashboard
+                    </Button>
+                </Link>
+            </div>
             <div className="max-w-3xl w-full space-y-8">
 
                 <div className="text-center space-y-2">

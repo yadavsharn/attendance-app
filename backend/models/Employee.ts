@@ -6,7 +6,7 @@ const employeeSchema = new mongoose.Schema({
     phone: { type: String, required: false },
     department: { type: String, required: false },
     designation: { type: String, required: false },
-    azure_face_name: { type: String, required: true, unique: true },
+    azure_face_name: { type: String, unique: true, sparse: true },
     status: { type: String, default: 'active' },
     face_image_url: { type: String },
     created_at: { type: Date, default: Date.now }
